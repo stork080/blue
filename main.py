@@ -4,14 +4,11 @@ from collections import defaultdict
 from typing import Dict, List
 
 from fastapi import FastAPI, Request, Response, Query
-from fastAPI.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="Middleware Composition Service")
 
-# ---------------------------------------------------------------
-# Assigned values
-# ---------------------------------------------------------------
 STUDENT_EMAIL = "25f2004578@ds.study.iitm.ac.in"
 ALLOWED_CORS_ORIGIN = "https://app-4aq0zr.example.com"
 RATE_LIMIT_BUCKET = 12
@@ -25,7 +22,6 @@ def is_allowed_origin(origin: str) -> bool:
         return False
     if origin == ALLOWED_CORS_ORIGIN:
         return True
-    # Exam page origins so the browser grader can reach /ping
     if "sanand.workers.dev" in origin or "workers.dev" in origin:
         return True
     if "iitm.ac.in" in origin or "localhost" in origin or "127.0.0.1" in origin:
@@ -33,9 +29,6 @@ def is_allowed_origin(origin: str) -> bool:
     return False
 
 
-# ---------------------------------------------------------------
-# RATE LIMIT middleware (added FIRST -> runs INNERMOST)
-# ---------------------------------------------------------------
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
@@ -50,25 +43,16 @@ async def rate_limit_middleware(request: Request, call_next):
 
     if len(bucket) >= RATE_LIMIT_BUCKET:
         rate_limit_records[client_id] = bucket
-        return JSONResponse(
-            status_code=429,
-            content={"detail": "Too Many Requests"},
-        )
+        return JSONResponse(status_code=429, content={"detail": "Too Many Requests"})
 
     bucket.append(now)
     rate_limit_records[client_id] = bucket
     return await call_next(request)
 
 
-# ---------------------------------------------------------------
-# CORS middleware (added LAST -> runs OUTERMOST, answers preflight first)
-# ---------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        ALLOWED_CORS_ORIGIN,
-        "https://sanand.workers.dev",
-    ],
+    allow_origins=[ALLOWED_CORS_ORIGIN, "https://sanand.workers.dev"],
     allow_origin_regex=r"https://.*\.workers\.dev",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
@@ -78,9 +62,6 @@ app.add_middleware(
 )
 
 
-# ---------------------------------------------------------------
-# Request-context middleware (runs after CORS, before route)
-# ---------------------------------------------------------------
 @app.middleware("http")
 async def context_middleware(request: Request, call_next):
     incoming = request.headers.get("x-request-id")
@@ -88,10 +69,8 @@ async def context_middleware(request: Request, call_next):
     request.state.request_id = request_id
 
     response = await call_next(request)
-
     response.headers["X-Request-ID"] = request_id
 
-    # Only attach ACAO for allowed origins (no wildcard)
     origin = request.headers.get("origin")
     if origin and is_allowed_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -100,9 +79,6 @@ async def context_middleware(request: Request, call_next):
     return response
 
 
-# ---------------------------------------------------------------
-# Explicit OPTIONS handler (safety net)
-# ---------------------------------------------------------------
 @app.options("/ping")
 async def ping_options(request: Request):
     origin = request.headers.get("origin", "")
@@ -119,9 +95,6 @@ async def ping_options(request: Request):
     return Response(status_code=200, headers=headers)
 
 
-# ---------------------------------------------------------------
-# GET /ping
-# ---------------------------------------------------------------
 @app.get("/ping")
 async def ping(request: Request):
     req_id = getattr(request.state, "request_id", str(uuid.uuid4()))
